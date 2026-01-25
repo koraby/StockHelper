@@ -332,7 +332,7 @@ class IntradayDiffService:
             if bar:
                 price_point = PricePoint(
                     time=bar.timestamp,
-                    price=bar.close,
+                    price=bar.open,
                     source="minute_bar",
                 )
                 self.cache.set(cache_key, price_point)
@@ -349,7 +349,7 @@ class IntradayDiffService:
                     )
                     price_point = PricePoint(
                         time=bar.timestamp,
-                        price=bar.close,
+                        price=bar.open,
                         source=f"minute_bar (aligned +{offset}min)",
                     )
                     self.cache.set(cache_key, price_point)
@@ -366,7 +366,7 @@ class IntradayDiffService:
                     )
                     price_point = PricePoint(
                         time=bar.timestamp,
-                        price=bar.close,
+                        price=bar.open,
                         source=f"minute_bar (aligned -{offset}min)",
                     )
                     self.cache.set(cache_key, price_point)
