@@ -1,0 +1,22 @@
+# FastAPI 與 ASGI 伺服器
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.6.0
+pydantic-settings==2.1.0
+
+# HTTP 客戶端
+httpx==0.26.0
+
+# 時區支援
+tzdata==2024.1
+
+# 測試相關
+pytest==8.0.0
+pytest-asyncio==0.23.4
+pytest-cov==4.1.0
+
+# 程式碼品質
+ruff==0.1.14
+
+# 日誌
+structlog==24.1.0

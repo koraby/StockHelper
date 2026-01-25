@@ -1,0 +1,17 @@
+# Render Blueprint 配置文件
+# 用於自動化部署設定
+
+services:
+  - type: web
+    name: stock-intraday-diff
+    runtime: python
+    region: singapore  # 亞洲區域，可改為 oregon, frankfurt 等
+    plan: free  # 免費方案，可改為 starter, standard 等
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.6"
+      - key: DATA_SOURCE_TYPE
+        value: "mock"  # 可改為 "real" 或 "yfinance"
+    healthCheckPath: /docs
