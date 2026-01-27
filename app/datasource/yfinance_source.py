@@ -116,13 +116,13 @@ class YFinanceDataSource(StockDataSource):
         start_date = target_date
         end_date = target_date + timedelta(days=1)
         
-        # 取得 1 分鐘級別資料
-        # 注意：yfinance 的分鐘資料只能取得最近 7 天
+        # 取得 5 分鐘級別資料（減少資料量）
+        # 注意：yfinance 的分鐘資料只能取得最近 60 天（5m interval）
         try:
             data = ticker.history(
                 start=start_date,
                 end=end_date,
-                interval="1m",
+                interval="5m",
                 prepost=False,  # 不包含盤前盤後
             )
         except Exception as e:
