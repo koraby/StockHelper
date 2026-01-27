@@ -12,6 +12,6 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.6"
-      - key: DATA_SOURCE_TYPE
-        value: "mock"  # 可改為 "real" 或 "yfinance"
+      - key: DATASOURCE_TYPE
+        value: "yfinance"  # 使用 yfinance 取得真實資料
     healthCheckPath: /docs
