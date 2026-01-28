@@ -8,6 +8,10 @@ pydantic-settings==2.5.0
 httpx==0.26.0
 yfinance==0.2.41
 
+# yfinance 必要依賴（解析 HTML/XML 數據）
+lxml>=4.9.0
+html5lib>=1.1
+
 # 時區支援
 tzdata==2024.1
 
