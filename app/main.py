@@ -110,22 +110,36 @@ async def debug_yfinance() -> dict:
     """
     import traceback
     from datetime import date, timedelta
+    import subprocess
+    import sys
     
     import yfinance as yf
     
     results = {
         "environment": {
             "datasource_type": settings.datasource_type,
+            "python_version": sys.version,
+            "yfinance_version": yf.__version__,
         },
+        "installed_packages": {},
         "tests": [],
     }
     
-    # 測試 1: 基本 yfinance 連線（日線數據）
-    test1 = {"name": "yfinance_daily_data", "status": "unknown", "details": {}}
+    # 檢查關鍵依賴是否已安裝
+    critical_packages = ["lxml", "html5lib", "beautifulsoup4", "requests", "pandas"]
+    for pkg in critical_packages:
+        try:
+            mod = __import__(pkg.replace("-", "_").replace("4", ""))
+            version = getattr(mod, "__version__", "unknown")
+            results["installed_packages"][pkg] = version
+        except ImportError:
+            results["installed_packages"][pkg] = "NOT INSTALLED"
+    
+    # 測試 1: 基本 yfinance 連線（日線數據）- 使用 download 方法
+    test1 = {"name": "yfinance_download_daily", "status": "unknown", "details": {}}
     try:
-        ticker = yf.Ticker("AAPL")
-        # 取得最近 5 天的日線數據
-        data = ticker.history(period="5d", interval="1d")
+        # 使用 download 方法而非 Ticker.history
+        data = yf.download("AAPL", period="5d", interval="1d", progress=False)
         if data.empty:
             test1["status"] = "failed"
             test1["details"]["error"] = "Empty DataFrame returned"
@@ -140,83 +154,90 @@ async def debug_yfinance() -> dict:
         test1["details"]["traceback"] = traceback.format_exc()
     results["tests"].append(test1)
     
-    # 測試 2: 分鐘級數據（1m interval）
-    test2 = {"name": "yfinance_1m_data", "status": "unknown", "details": {}}
+    # 測試 2: Ticker.history 方法
+    test2 = {"name": "yfinance_ticker_history", "status": "unknown", "details": {}}
     try:
         ticker = yf.Ticker("AAPL")
-        # 取得最近 1 天的 1 分鐘數據
-        data = ticker.history(period="1d", interval="1m")
+        data = ticker.history(period="5d", interval="1d")
         if data.empty:
             test2["status"] = "failed"
             test2["details"]["error"] = "Empty DataFrame returned"
+            # 嘗試獲取更多資訊
+            test2["details"]["ticker_info_keys"] = list(ticker.info.keys())[:10] if ticker.info else []
         else:
             test2["status"] = "success"
             test2["details"]["rows"] = len(data)
-            test2["details"]["first_time"] = str(data.index[0])
-            test2["details"]["last_time"] = str(data.index[-1])
     except Exception as e:
         test2["status"] = "error"
         test2["details"]["error"] = str(e)
         test2["details"]["traceback"] = traceback.format_exc()
     results["tests"].append(test2)
     
-    # 測試 3: 台股數據
-    test3 = {"name": "yfinance_tw_stock", "status": "unknown", "details": {}}
+    # 測試 3: 直接調用 Yahoo Finance API
+    test3 = {"name": "direct_yahoo_api", "status": "unknown", "details": {}}
     try:
-        ticker = yf.Ticker("2330.TW")
-        data = ticker.history(period="5d", interval="1d")
-        if data.empty:
-            test3["status"] = "failed"
-            test3["details"]["error"] = "Empty DataFrame returned"
-        else:
+        import urllib.request
+        import json
+        
+        url = "https://query1.finance.yahoo.com/v8/finance/chart/AAPL?interval=1d&range=5d"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15) as response:
+            raw_data = response.read()
+            json_data = json.loads(raw_data)
+            
             test3["status"] = "success"
-            test3["details"]["rows"] = len(data)
-            test3["details"]["last_date"] = str(data.index[-1])
-            test3["details"]["last_close"] = float(data["Close"].iloc[-1])
+            test3["details"]["status_code"] = response.status
+            
+            # 解析數據
+            chart = json_data.get("chart", {})
+            result = chart.get("result", [])
+            if result:
+                timestamps = result[0].get("timestamp", [])
+                test3["details"]["data_points"] = len(timestamps)
+                test3["details"]["has_indicators"] = "indicators" in result[0]
+            else:
+                test3["details"]["error"] = "No result in response"
+                test3["details"]["response_keys"] = list(json_data.keys())
+                
     except Exception as e:
         test3["status"] = "error"
         test3["details"]["error"] = str(e)
         test3["details"]["traceback"] = traceback.format_exc()
     results["tests"].append(test3)
     
-    # 測試 4: 台股分鐘數據
-    test4 = {"name": "yfinance_tw_1m_data", "status": "unknown", "details": {}}
+    # 測試 4: 台股直接 API
+    test4 = {"name": "direct_yahoo_api_tw", "status": "unknown", "details": {}}
     try:
-        ticker = yf.Ticker("2330.TW")
-        data = ticker.history(period="1d", interval="1m")
-        if data.empty:
-            test4["status"] = "failed"
-            test4["details"]["error"] = "Empty DataFrame returned"
-        else:
+        import urllib.request
+        import json
+        
+        url = "https://query1.finance.yahoo.com/v8/finance/chart/2330.TW?interval=1d&range=5d"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15) as response:
+            raw_data = response.read()
+            json_data = json.loads(raw_data)
+            
             test4["status"] = "success"
-            test4["details"]["rows"] = len(data)
-            test4["details"]["first_time"] = str(data.index[0])
-            test4["details"]["last_time"] = str(data.index[-1])
+            test4["details"]["status_code"] = response.status
+            
+            chart = json_data.get("chart", {})
+            result = chart.get("result", [])
+            if result:
+                timestamps = result[0].get("timestamp", [])
+                test4["details"]["data_points"] = len(timestamps)
+                # 獲取最新價格
+                quote = result[0].get("indicators", {}).get("quote", [{}])[0]
+                closes = quote.get("close", [])
+                if closes:
+                    test4["details"]["last_close"] = closes[-1]
+            else:
+                test4["details"]["error"] = "No result in response"
+                
     except Exception as e:
         test4["status"] = "error"
         test4["details"]["error"] = str(e)
         test4["details"]["traceback"] = traceback.format_exc()
     results["tests"].append(test4)
-    
-    # 測試 5: 網路連線測試
-    test5 = {"name": "network_test", "status": "unknown", "details": {}}
-    try:
-        import urllib.request
-        
-        # 測試 Yahoo Finance 網站
-        req = urllib.request.Request(
-            "https://query1.finance.yahoo.com/v8/finance/chart/AAPL?interval=1d&range=1d",
-            headers={"User-Agent": "Mozilla/5.0"}
-        )
-        with urllib.request.urlopen(req, timeout=10) as response:
-            test5["status"] = "success"
-            test5["details"]["status_code"] = response.status
-            test5["details"]["content_length"] = len(response.read())
-    except Exception as e:
-        test5["status"] = "error"
-        test5["details"]["error"] = str(e)
-        test5["details"]["traceback"] = traceback.format_exc()
-    results["tests"].append(test5)
     
     # 總結
     success_count = sum(1 for t in results["tests"] if t["status"] == "success")
@@ -224,7 +245,16 @@ async def debug_yfinance() -> dict:
         "total_tests": len(results["tests"]),
         "success": success_count,
         "failed": len(results["tests"]) - success_count,
+        "recommendation": "",
     }
+    
+    # 建議
+    if results["installed_packages"].get("lxml") == "NOT INSTALLED":
+        results["summary"]["recommendation"] = "Missing lxml - add to requirements.txt"
+    elif success_count >= 2 and results["tests"][0]["status"] != "success":
+        results["summary"]["recommendation"] = "Direct API works but yfinance fails - possible yfinance bug"
+    elif success_count == 0:
+        results["summary"]["recommendation"] = "All tests failed - network or dependency issue"
     
     return results
 
