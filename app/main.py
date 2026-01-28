@@ -101,6 +101,134 @@ async def health_check() -> dict[str, str]:
     return {"status": "healthy"}
 
 
+@app.get("/debug/yfinance")
+async def debug_yfinance() -> dict:
+    """
+    診斷 yfinance 在當前環境中的運作狀態
+    
+    用於排查 Render 環境中 yfinance 無法取得資料的問題
+    """
+    import traceback
+    from datetime import date, timedelta
+    
+    import yfinance as yf
+    
+    results = {
+        "environment": {
+            "datasource_type": settings.datasource_type,
+        },
+        "tests": [],
+    }
+    
+    # 測試 1: 基本 yfinance 連線（日線數據）
+    test1 = {"name": "yfinance_daily_data", "status": "unknown", "details": {}}
+    try:
+        ticker = yf.Ticker("AAPL")
+        # 取得最近 5 天的日線數據
+        data = ticker.history(period="5d", interval="1d")
+        if data.empty:
+            test1["status"] = "failed"
+            test1["details"]["error"] = "Empty DataFrame returned"
+        else:
+            test1["status"] = "success"
+            test1["details"]["rows"] = len(data)
+            test1["details"]["columns"] = list(data.columns)
+            test1["details"]["last_date"] = str(data.index[-1])
+    except Exception as e:
+        test1["status"] = "error"
+        test1["details"]["error"] = str(e)
+        test1["details"]["traceback"] = traceback.format_exc()
+    results["tests"].append(test1)
+    
+    # 測試 2: 分鐘級數據（1m interval）
+    test2 = {"name": "yfinance_1m_data", "status": "unknown", "details": {}}
+    try:
+        ticker = yf.Ticker("AAPL")
+        # 取得最近 1 天的 1 分鐘數據
+        data = ticker.history(period="1d", interval="1m")
+        if data.empty:
+            test2["status"] = "failed"
+            test2["details"]["error"] = "Empty DataFrame returned"
+        else:
+            test2["status"] = "success"
+            test2["details"]["rows"] = len(data)
+            test2["details"]["first_time"] = str(data.index[0])
+            test2["details"]["last_time"] = str(data.index[-1])
+    except Exception as e:
+        test2["status"] = "error"
+        test2["details"]["error"] = str(e)
+        test2["details"]["traceback"] = traceback.format_exc()
+    results["tests"].append(test2)
+    
+    # 測試 3: 台股數據
+    test3 = {"name": "yfinance_tw_stock", "status": "unknown", "details": {}}
+    try:
+        ticker = yf.Ticker("2330.TW")
+        data = ticker.history(period="5d", interval="1d")
+        if data.empty:
+            test3["status"] = "failed"
+            test3["details"]["error"] = "Empty DataFrame returned"
+        else:
+            test3["status"] = "success"
+            test3["details"]["rows"] = len(data)
+            test3["details"]["last_date"] = str(data.index[-1])
+            test3["details"]["last_close"] = float(data["Close"].iloc[-1])
+    except Exception as e:
+        test3["status"] = "error"
+        test3["details"]["error"] = str(e)
+        test3["details"]["traceback"] = traceback.format_exc()
+    results["tests"].append(test3)
+    
+    # 測試 4: 台股分鐘數據
+    test4 = {"name": "yfinance_tw_1m_data", "status": "unknown", "details": {}}
+    try:
+        ticker = yf.Ticker("2330.TW")
+        data = ticker.history(period="1d", interval="1m")
+        if data.empty:
+            test4["status"] = "failed"
+            test4["details"]["error"] = "Empty DataFrame returned"
+        else:
+            test4["status"] = "success"
+            test4["details"]["rows"] = len(data)
+            test4["details"]["first_time"] = str(data.index[0])
+            test4["details"]["last_time"] = str(data.index[-1])
+    except Exception as e:
+        test4["status"] = "error"
+        test4["details"]["error"] = str(e)
+        test4["details"]["traceback"] = traceback.format_exc()
+    results["tests"].append(test4)
+    
+    # 測試 5: 網路連線測試
+    test5 = {"name": "network_test", "status": "unknown", "details": {}}
+    try:
+        import urllib.request
+        
+        # 測試 Yahoo Finance 網站
+        req = urllib.request.Request(
+            "https://query1.finance.yahoo.com/v8/finance/chart/AAPL?interval=1d&range=1d",
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            test5["status"] = "success"
+            test5["details"]["status_code"] = response.status
+            test5["details"]["content_length"] = len(response.read())
+    except Exception as e:
+        test5["status"] = "error"
+        test5["details"]["error"] = str(e)
+        test5["details"]["traceback"] = traceback.format_exc()
+    results["tests"].append(test5)
+    
+    # 總結
+    success_count = sum(1 for t in results["tests"] if t["status"] == "success")
+    results["summary"] = {
+        "total_tests": len(results["tests"]),
+        "success": success_count,
+        "failed": len(results["tests"]) - success_count,
+    }
+    
+    return results
+
+
 @app.post(
     "/v1/stocks/intraday-diff",
     response_model=IntradayDiffResponse,
