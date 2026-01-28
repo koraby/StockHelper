@@ -1,10 +1,9 @@
 # 📈 Stock Intraday Diff Service
 
-> FastAPI 股票盤中價差查詢服務 - 查詢股票在指定日期的 09:00 與 09:50 價格及價差
+> FastAPI 股票盤中價差查詢服務 - 查詢股票在指定日期的 09:00 與 09:50 開盤價及價差
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green.svg)](https://fastapi.tiangolo.com)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
@@ -12,15 +11,10 @@
 
 | 功能 | 說明 |
 |:-----|:-----|
-| 📊 **批次查詢** | 支援 1-200 檔股票批次查詢 |
-| 🌍 **跨市場** | 支援跨交易所代碼（.TW、.US、.JP 等） |
-| 💰 **多種價格來源** | 官方開盤價、第一筆成交價、分鐘 K 線 |
-| 📅 **特殊情況處理** | 自動處理非交易日、早收盤等 |
-| ⏱️ **時間對齊** | 容忍度 ±2 分鐘 |
-| 🚀 **快取機制** | 記憶體快取（TTL 10 分鐘） |
-| ⚡ **並行處理** | 並行查詢（限制併發度） |
-| 📝 **結構化日誌** | 完整的日誌記錄 |
-| ✅ **測試完整** | 單元測試與整合測試 |
+| 📊 **批次查詢** | 支援 1-50 檔股票批次查詢 |
+| 🌍 **跨市場** | 支援跨交易所代碼（.TW、.US 等） |
+| 💰 **精準價格** | 09:00 和 09:50 開盤價，自動四捨五入至 2 位小數 |
+| 🔗 **Yahoo Finance API** | 直接呼叫 Yahoo Finance API 取得即時資料 |
 
 ---
 
@@ -29,29 +23,17 @@
 ### 📋 環境需求
 
 - **Python** 3.11+
-- **pip** 或 **poetry**
 
 ### 📦 安裝依賴
 
 ```powershell
-# 建立虛擬環境
-python -m venv venv
-
-# 啟用虛擬環境（Windows）
-.\venv\Scripts\Activate.ps1
-
-# 安裝依賴
 pip install -r requirements.txt
 ```
 
 ### ▶️ 啟動服務
 
 ```powershell
-# 方式 1：使用 uvicorn
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-
-# 方式 2：直接執行 main.py
-python -m app.main
 ```
 
 服務啟動後，可在以下網址存取：
@@ -60,100 +42,94 @@ python -m app.main
 |:---------|:-----|
 | 📘 **Swagger UI** | http://localhost:8000/docs |
 | 📗 **ReDoc** | http://localhost:8000/redoc |
-| 📄 **OpenAPI Schema** | http://localhost:8000/openapi.json |
 
 ---
 
 ## 📖 API 使用範例
 
-### 基本查詢
+### 端點
+
+| 方法 | 路徑 | 說明 |
+|:----:|:-----|:-----|
+| GET | `/` | API 說明 |
+| GET | `/health` | 健康檢查 |
+| POST | `/api/intraday-diff` | 批次查詢股票價差 |
+
+### 查詢股票價差
+
+**Request:**
 
 ```powershell
-curl -X POST http://localhost:8000/v1/stocks/intraday-diff `
+curl -X POST http://localhost:8000/api/intraday-diff `
   -H "Content-Type: application/json" `
   -d '{
-    "symbols": ["2330.TW", "AAPL"],
-    "date": "2025-05-20",
-    "timezone": "Asia/Taipei"
+    "symbols": ["2330.TW", "2317.TW", "2337.TW"],
+    "date": "2026-01-28"
   }'
 ```
 
-### 使用官方開盤價
-
-```powershell
-curl -X POST http://localhost:8000/v1/stocks/intraday-diff `
-  -H "Content-Type: application/json" `
-  -d '{
-    "symbols": ["2330.TW"],
-    "date": "2025-05-20",
-    "timezone": "Asia/Taipei",
-    "price_source": "official_open"
-  }'
-```
-
-### 回應範例
+**Response:**
 
 ```json
-{
-  "date": "2025-05-20",
-  "timezone": "Asia/Taipei",
-  "price_source": "minute_bar",
-  "results": [
-    {
-      "symbol": "2330.TW",
-      "t0900": {
-        "time": "2025-05-20T09:00:00+08:00",
-        "price": 823.0,
-        "source": "minute_bar"
-      },
-      "t0950": {
-        "time": "2025-05-20T09:50:00+08:00",
-        "price": 829.5,
-        "source": "minute_bar"
-      },
-      "diff": 6.5,
-      "currency": "TWD",
-      "notes": []
-    },
-    {
-      "symbol": "AAPL",
-      "t0900": null,
-      "t0950": null,
-      "diff": null,
-      "currency": "USD",
-      "notes": ["Non-trading day (Weekend)"]
-    }
-  ],
-  "warnings": []
-}
+[
+  {
+    "symbol": "2330.TW",
+    "date": "2026-01-28",
+    "open_0900": 1050.0,
+    "open_0950": 1055.0,
+    "diff": 5.0,
+    "error": null
+  },
+  {
+    "symbol": "2317.TW",
+    "date": "2026-01-28",
+    "open_0900": 150.5,
+    "open_0950": 151.0,
+    "diff": 0.5,
+    "error": null
+  },
+  {
+    "symbol": "2337.TW",
+    "date": "2026-01-28",
+    "open_0900": 81.7,
+    "open_0950": 83.8,
+    "diff": 2.1,
+    "error": null
+  }
+]
 ```
 
 ---
 
-## ⚙️ 環境變數配置
+## 📋 API 規格
 
-建立 `.env` 檔案進行自訂配置：
+### POST /api/intraday-diff
 
-```env
-# 應用程式設定
-APP_NAME=Stock Intraday Diff Service
-DEBUG=false
-LOG_LEVEL=INFO
+#### 請求參數
 
-# 資料源設定
-DATASOURCE_TYPE=mock  # mock 或 real
-CACHE_TTL_SECONDS=600
-MAX_CONCURRENT_REQUESTS=10
+| 參數 | 類型 | 必填 | 說明 | 預設值 |
+|:-----|:-----|:----:|:-----|:-------|
+| `symbols` | `string[]` | ✅ | 股票代碼清單（1-50 檔） | - |
+| `date` | `string` | ❌ | 查詢日期（YYYY-MM-DD） | 當天日期 |
 
-# 真實資料源 API 金鑰（使用 real 資料源時設定）
-YAHOO_FINANCE_ENABLED=true
-POLYGON_API_KEY=your_polygon_api_key_here
-TIINGO_API_KEY=your_tiingo_api_key_here
-TWSE_API_ENABLED=true
+#### 回應欄位
 
-# 時間對齊容忍度（分鐘）
-TIME_ALIGNMENT_TOLERANCE_MINUTES=2
-```
+| 欄位 | 類型 | 說明 |
+|:-----|:-----|:-----|
+| `symbol` | `string` | 股票代碼 |
+| `date` | `string` | 查詢日期 |
+| `open_0900` | `number \| null` | 09:00 開盤價 |
+| `open_0950` | `number \| null` | 09:50 開盤價 |
+| `diff` | `number \| null` | 價差（open_0950 - open_0900） |
+| `error` | `string \| null` | 錯誤訊息（如有） |
+
+#### 回應狀態碼
+
+| 狀態碼 | 說明 |
+|:------:|:-----|
+| `200` | ✅ 查詢成功 |
+| `422` | ⚠️ 請求參數驗證失敗 |
+| `500` | ❌ 系統內部錯誤 |
 
 ---
 
@@ -165,156 +141,24 @@ StockHelper/
 │   ├── __init__.py
 │   ├── main.py              # FastAPI 應用程式入口
 │   ├── models.py            # Pydantic 資料模型
-│   ├── service.py           # 核心業務邏輯
-│   ├── config.py            # 配置管理
-│   └── datasource/
-│       ├── __init__.py
-│       ├── base.py          # 資料源抽象介面
-│       ├── mock.py          # Mock 資料源（測試用）
-│       └── real.py          # 真實資料源（待實作）
-├── tests/
-│   ├── __init__.py
-│   ├── test_models.py       # 模型單元測試
-│   ├── test_service.py      # 服務單元測試
-│   └── test_api.py          # API 整合測試
+│   └── config.py            # 配置管理
 ├── requirements.txt         # 專案依賴
-├── pyproject.toml           # 專案配置與 ruff 設定
-├── Procfile                 # 部署配置
+├── Procfile                 # Render 部署配置
 ├── render.yaml              # Render 部署配置
 └── README.md
 ```
 
 ---
 
-## 🧪 執行測試
+## 🌐 部署
 
-```powershell
-# 執行所有測試
-pytest
+本專案已配置 Render 部署：
 
-# 執行測試並顯示覆蓋率
-pytest --cov=app --cov-report=html
+1. 連結 GitHub 倉庫到 Render
+2. 選擇 Web Service
+3. 使用 `render.yaml` 自動配置
 
-# 執行特定測試檔案
-pytest tests/test_api.py
-
-# 執行特定測試
-pytest tests/test_service.py::TestIntradayDiffService::test_query_tw_stock_normal_trading_day
-```
-
----
-
-## 🔍 程式碼品質檢查
-
-```powershell
-# 執行 ruff 檢查
-ruff check app/ tests/
-
-# 自動修正可修正的問題
-ruff check --fix app/ tests/
-
-# 格式化程式碼
-ruff format app/ tests/
-```
-
----
-
-## 📋 API 規格
-
-### 端點
-
-```
-POST /v1/stocks/intraday-diff
-```
-
-### 請求參數
-
-| 參數 | 類型 | 必填 | 說明 | 預設值 |
-|:-----|:-----|:----:|:-----|:-------|
-| `symbols` | `string[]` | ✅ | 股票代碼清單（1-200 檔） | - |
-| `date` | `string` | ✅ | 查詢日期（YYYY-MM-DD） | - |
-| `exchange` | `string` | ❌ | 交易所代碼 | `"auto"` |
-| `timezone` | `string` | ❌ | 時區 | `"Asia/Taipei"` |
-| `price_source` | `string` | ❌ | 價格來源 | `"minute_bar"` |
-
-> 💡 **price_source 選項：** `official_open`、`first_trade`、`minute_bar`
-
-### 回應狀態碼
-
-| 狀態碼 | 說明 |
-|:------:|:-----|
-| `200` | ✅ 查詢成功（即使部分股票失敗） |
-| `422` | ⚠️ 請求參數驗證失敗 |
-| `413` | ⚠️ symbols 數量超過 200 |
-| `500` | ❌ 系統內部錯誤 |
-
----
-
-## 💾 資料源說明
-
-### 🧪 Mock 資料源（預設）
-
-用於開發與測試，提供固定的模擬資料：
-
-| 股票代碼 | 情境說明 |
-|:--------:|:---------|
-| `2330.TW` | 正常交易日，有完整的 09:00 與 09:50 資料 |
-| `AAPL` | 非交易日（週末或假日） |
-| `2884.TW` | 早收盤情境（只有到 09:40） |
-
-### 🌐 真實資料源（待實作）
-
-支援整合的資料供應商：
-
-| 供應商 | 費用 | 說明 |
-|:-------|:----:|:-----|
-| **Yahoo Finance** (yfinance) | 免費 | 支援全球多數市場 |
-| **Polygon.io** | 付費 | 美股資料完整 |
-| **Tiingo** | 付費 | 支援美股與加密貨幣 |
-| **台灣證交所 TWSE API** | 免費 | 台股官方資料 |
-| **Alpha Vantage** | 免費 | 額度有限 |
-
-> ⚠️ 使用真實資料源前，請在 `.env` 設定相關 API 金鑰。
-
----
-
-## ⏰ 時間對齊邏輯
-
-當指定分鐘無資料時，系統會嘗試以下對齊策略：
-
-```
-1️⃣ 優先取目標分鐘的資料（例如 09:00）
-      ⬇️
-2️⃣ 若無資料，向前尋找（09:01、09:02）
-      ⬇️
-3️⃣ 若仍無，向後尋找（08:59、08:58）
-      ⬇️
-4️⃣ 若仍無法找到（超出 ±2 分鐘容忍度），回傳 null 並記錄 notes
-```
-
----
-
-## ⚠️ 注意事項
-
-| 項目 | 說明 |
-|:-----|:-----|
-| 🌍 **時區處理** | 所有輸入與輸出時間皆以指定的 `timezone` 為準 |
-| 💰 **幣別** | 不同交易所的股票會自動偵測幣別（TWD、USD、JPY 等），不做匯率轉換 |
-| 🚀 **快取** | 相同查詢會使用記憶體快取（TTL 10 分鐘），減少外部 API 呼叫 |
-| ⚡ **併發控制** | 批次查詢時會限制併發數量（預設 10），避免外部 API 限流 |
-| 🛡️ **錯誤處理** | 單一股票查詢失敗不影響其他股票，錯誤訊息會記錄在 `notes` 與 `warnings` 中 |
-
----
-
-## 📄 授權
-
-本專案採用 [MIT License](LICENSE) 授權。
-
----
-
-## 👨‍💻 作者
-
-**FastAPI Stock Service Team**
+部署後可在 Render 提供的 URL 存取服務。
 
 ---
 

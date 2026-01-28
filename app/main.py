@@ -1,39 +1,23 @@
 """FastAPI 主應用程式"""
-import structlog
-from fastapi import FastAPI, HTTPException, Request, status
+import json
+import urllib.request
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.config import settings
-from app.models import (
-    ErrorResponse,
-    IntradayDiffRequest,
-    IntradayDiffResponse,
-)
-from app.service import IntradayDiffService
-
-# 配置結構化日誌
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.add_log_level,
-        structlog.processors.JSONRenderer(),
-    ],
-)
-
-logger = structlog.get_logger()
+from app.models import RawDataRequest
 
 # 建立 FastAPI 應用程式
 app = FastAPI(
     title="Stock Intraday Diff Service",
     description="查詢股票在指定日期的 09:00 與 09:50 價格及價差",
-    version="0.1.0",
+    version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
 )
-
-# 初始化服務
-service = IntradayDiffService()
 
 
 @app.exception_handler(RequestValidationError)
@@ -42,12 +26,6 @@ async def validation_exception_handler(
     exc: RequestValidationError,
 ) -> JSONResponse:
     """處理請求驗證錯誤（422）"""
-    logger.warning(
-        "validation_error",
-        path=request.url.path,
-        errors=exc.errors(),
-    )
-    
     # 格式化錯誤訊息
     formatted_errors = []
     for error in exc.errors():
@@ -72,13 +50,6 @@ async def general_exception_handler(
     exc: Exception,
 ) -> JSONResponse:
     """處理未預期的錯誤"""
-    logger.error(
-        "unhandled_exception",
-        path=request.url.path,
-        error=str(exc),
-        exc_info=True,
-    )
-    
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"detail": "系統內部錯誤，請稍後再試"},
@@ -86,12 +57,25 @@ async def general_exception_handler(
 
 
 @app.get("/")
-async def root() -> dict[str, str]:
-    """根路徑"""
+async def root() -> dict:
+    """根路徑 - API 說明"""
     return {
-        "service": settings.app_name,
-        "version": "0.1.0",
-        "status": "running",
+        "service": "Stock Intraday Diff Service",
+        "version": "1.0.0",
+        "endpoints": {
+            "POST /api/intraday-diff": "批次查詢股票指定兩個時間點的開盤價及價差",
+            "GET /health": "健康檢查",
+            "GET /docs": "Swagger UI 文件",
+        },
+        "example": {
+            "url": "POST /api/intraday-diff",
+            "body": {
+                "symbols": ["2330.TW", "2317.TW"],
+                "date": "2026-01-28",
+                "time1": "09:00",
+                "time2": "09:50"
+            }
+        }
     }
 
 
@@ -101,183 +85,25 @@ async def health_check() -> dict[str, str]:
     return {"status": "healthy"}
 
 
-@app.get("/debug/yfinance")
-async def debug_yfinance() -> dict:
+def fetch_symbol_data(symbol: str, date: str, time1: str, time2: str) -> dict:
     """
-    診斷 yfinance 在當前環境中的運作狀態
-    
-    用於排查 Render 環境中 yfinance 無法取得資料的問題
-    """
-    import traceback
-    from datetime import date, timedelta
-    import subprocess
-    import sys
-    
-    import yfinance as yf
-    
-    results = {
-        "environment": {
-            "datasource_type": settings.datasource_type,
-            "python_version": sys.version,
-            "yfinance_version": yf.__version__,
-        },
-        "installed_packages": {},
-        "tests": [],
-    }
-    
-    # 檢查關鍵依賴是否已安裝
-    critical_packages = ["lxml", "html5lib", "beautifulsoup4", "requests", "pandas"]
-    for pkg in critical_packages:
-        try:
-            mod = __import__(pkg.replace("-", "_").replace("4", ""))
-            version = getattr(mod, "__version__", "unknown")
-            results["installed_packages"][pkg] = version
-        except ImportError:
-            results["installed_packages"][pkg] = "NOT INSTALLED"
-    
-    # 測試 1: 基本 yfinance 連線（日線數據）- 使用 download 方法
-    test1 = {"name": "yfinance_download_daily", "status": "unknown", "details": {}}
-    try:
-        # 使用 download 方法而非 Ticker.history
-        data = yf.download("AAPL", period="5d", interval="1d", progress=False)
-        if data.empty:
-            test1["status"] = "failed"
-            test1["details"]["error"] = "Empty DataFrame returned"
-        else:
-            test1["status"] = "success"
-            test1["details"]["rows"] = len(data)
-            test1["details"]["columns"] = list(data.columns)
-            test1["details"]["last_date"] = str(data.index[-1])
-    except Exception as e:
-        test1["status"] = "error"
-        test1["details"]["error"] = str(e)
-        test1["details"]["traceback"] = traceback.format_exc()
-    results["tests"].append(test1)
-    
-    # 測試 2: Ticker.history 方法
-    test2 = {"name": "yfinance_ticker_history", "status": "unknown", "details": {}}
-    try:
-        ticker = yf.Ticker("AAPL")
-        data = ticker.history(period="5d", interval="1d")
-        if data.empty:
-            test2["status"] = "failed"
-            test2["details"]["error"] = "Empty DataFrame returned"
-            # 嘗試獲取更多資訊
-            test2["details"]["ticker_info_keys"] = list(ticker.info.keys())[:10] if ticker.info else []
-        else:
-            test2["status"] = "success"
-            test2["details"]["rows"] = len(data)
-    except Exception as e:
-        test2["status"] = "error"
-        test2["details"]["error"] = str(e)
-        test2["details"]["traceback"] = traceback.format_exc()
-    results["tests"].append(test2)
-    
-    # 測試 3: 直接調用 Yahoo Finance API
-    test3 = {"name": "direct_yahoo_api", "status": "unknown", "details": {}}
-    try:
-        import urllib.request
-        import json
-        
-        url = "https://query1.finance.yahoo.com/v8/finance/chart/AAPL?interval=1d&range=5d"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=15) as response:
-            raw_data = response.read()
-            json_data = json.loads(raw_data)
-            
-            test3["status"] = "success"
-            test3["details"]["status_code"] = response.status
-            
-            # 解析數據
-            chart = json_data.get("chart", {})
-            result = chart.get("result", [])
-            if result:
-                timestamps = result[0].get("timestamp", [])
-                test3["details"]["data_points"] = len(timestamps)
-                test3["details"]["has_indicators"] = "indicators" in result[0]
-            else:
-                test3["details"]["error"] = "No result in response"
-                test3["details"]["response_keys"] = list(json_data.keys())
-                
-    except Exception as e:
-        test3["status"] = "error"
-        test3["details"]["error"] = str(e)
-        test3["details"]["traceback"] = traceback.format_exc()
-    results["tests"].append(test3)
-    
-    # 測試 4: 台股直接 API
-    test4 = {"name": "direct_yahoo_api_tw", "status": "unknown", "details": {}}
-    try:
-        import urllib.request
-        import json
-        
-        url = "https://query1.finance.yahoo.com/v8/finance/chart/2330.TW?interval=1d&range=5d"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=15) as response:
-            raw_data = response.read()
-            json_data = json.loads(raw_data)
-            
-            test4["status"] = "success"
-            test4["details"]["status_code"] = response.status
-            
-            chart = json_data.get("chart", {})
-            result = chart.get("result", [])
-            if result:
-                timestamps = result[0].get("timestamp", [])
-                test4["details"]["data_points"] = len(timestamps)
-                # 獲取最新價格
-                quote = result[0].get("indicators", {}).get("quote", [{}])[0]
-                closes = quote.get("close", [])
-                if closes:
-                    test4["details"]["last_close"] = closes[-1]
-            else:
-                test4["details"]["error"] = "No result in response"
-                
-    except Exception as e:
-        test4["status"] = "error"
-        test4["details"]["error"] = str(e)
-        test4["details"]["traceback"] = traceback.format_exc()
-    results["tests"].append(test4)
-    
-    # 總結
-    success_count = sum(1 for t in results["tests"] if t["status"] == "success")
-    results["summary"] = {
-        "total_tests": len(results["tests"]),
-        "success": success_count,
-        "failed": len(results["tests"]) - success_count,
-        "recommendation": "",
-    }
-    
-    # 建議
-    if results["installed_packages"].get("lxml") == "NOT INSTALLED":
-        results["summary"]["recommendation"] = "Missing lxml - add to requirements.txt"
-    elif success_count >= 2 and results["tests"][0]["status"] != "success":
-        results["summary"]["recommendation"] = "Direct API works but yfinance fails - possible yfinance bug"
-    elif success_count == 0:
-        results["summary"]["recommendation"] = "All tests failed - network or dependency issue"
-    
-    return results
-
-
-@app.get("/debug/raw-data/{symbol}")
-async def debug_raw_data(symbol: str, date: str = "2026-01-27") -> dict:
-    """
-    取得指定股票的原始分鐘數據，用於調試價格差異
+    取得單一股票指定兩個時間點的開盤價及價差
     
     Args:
         symbol: 股票代碼（如 2330.TW）
         date: 日期（如 2026-01-27）
+        time1: 第一個時間點（如 09:00）
+        time2: 第二個時間點（如 09:50）
     """
-    import json
-    import urllib.request
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    
-    results = {
+    result = {
         "symbol": symbol,
         "date": date,
-        "raw_api_data": {},
-        "parsed_bars": [],
+        "time1": time1,
+        "time2": time2,
+        "open_1": None,
+        "open_2": None,
+        "diff": None,
+        "error": None,
     }
     
     try:
@@ -291,7 +117,7 @@ async def debug_raw_data(symbol: str, date: str = "2026-01-27") -> dict:
         period1 = int(start_dt.timestamp())
         period2 = int(end_dt.timestamp())
         
-        # 調用 Yahoo Finance API（使用 5 分鐘間隔，與主服務一致）
+        # 調用 Yahoo Finance API（使用 5 分鐘間隔）
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=5m&period1={period1}&period2={period2}"
         
         req = urllib.request.Request(
@@ -304,22 +130,17 @@ async def debug_raw_data(symbol: str, date: str = "2026-01-27") -> dict:
             json_data = json.loads(raw_data)
             
             chart = json_data.get("chart", {})
-            result = chart.get("result", [])
+            chart_result = chart.get("result", [])
             
-            if result:
-                data = result[0]
+            if chart_result:
+                data = chart_result[0]
                 timestamps = data.get("timestamp", [])
                 indicators = data.get("indicators", {})
                 quote = indicators.get("quote", [{}])[0]
                 
                 opens = quote.get("open", [])
-                highs = quote.get("high", [])
-                lows = quote.get("low", [])
-                closes = quote.get("close", [])
                 
-                # 顯示 09:00 和 09:50 附近的數據
-                target_times = ["09:00", "09:50"]
-                
+                # 找到指定時間的 open 價格
                 for i, ts in enumerate(timestamps):
                     if ts is None:
                         continue
@@ -327,136 +148,40 @@ async def debug_raw_data(symbol: str, date: str = "2026-01-27") -> dict:
                     dt = datetime.fromtimestamp(ts, tz=tz)
                     time_str = dt.strftime("%H:%M")
                     
-                    # 只顯示 09:00-10:00 的數據
-                    if dt.hour == 9:
-                        bar_info = {
-                            "index": i,
-                            "timestamp": ts,
-                            "time": dt.isoformat(),
-                            "time_short": time_str,
-                            "open": opens[i] if i < len(opens) else None,
-                            "high": highs[i] if i < len(highs) else None,
-                            "low": lows[i] if i < len(lows) else None,
-                            "close": closes[i] if i < len(closes) else None,
-                        }
-                        results["parsed_bars"].append(bar_info)
+                    if time_str == time1 and i < len(opens) and opens[i] is not None:
+                        result["open_1"] = round(opens[i], 2)
+                    elif time_str == time2 and i < len(opens) and opens[i] is not None:
+                        result["open_2"] = round(opens[i], 2)
                 
-                results["raw_api_data"]["total_bars"] = len(timestamps)
-                results["raw_api_data"]["url"] = url
+                # 計算價差
+                if result["open_1"] is not None and result["open_2"] is not None:
+                    result["diff"] = round(result["open_2"] - result["open_1"], 2)
             else:
-                results["error"] = "No data in API response"
+                result["error"] = "No data in API response"
                 
     except Exception as e:
-        results["error"] = str(e)
-        import traceback
-        results["traceback"] = traceback.format_exc()
+        result["error"] = str(e)
+    
+    return result
+
+
+@app.post("/api/intraday-diff")
+async def get_intraday_diff(request: RawDataRequest) -> list[dict]:
+    """
+    取得多檔股票指定兩個時間點的開盤價及價差
+    
+    Request Body:
+        symbols: 股票代碼清單，例如 ["2330.TW", "2317.TW"]
+        date: 日期，格式 YYYY-MM-DD
+        time1: 第一個時間點，格式 HH:MM（預設 09:00）
+        time2: 第二個時間點，格式 HH:MM（預設 09:50）
+    
+    Response: 陣列，每個元素包含 symbol, date, time1, time2, open_1, open_2, diff
+    """
+    results = []
+    
+    for symbol in request.symbols:
+        data = fetch_symbol_data(symbol, request.date, request.time1, request.time2)
+        results.append(data)
     
     return results
-
-
-@app.post(
-    "/v1/stocks/intraday-diff",
-    response_model=IntradayDiffResponse,
-    status_code=status.HTTP_200_OK,
-    responses={
-        422: {"model": ErrorResponse, "description": "請求驗證失敗"},
-        413: {"model": ErrorResponse, "description": "請求過大"},
-        500: {"model": ErrorResponse, "description": "系統內部錯誤"},
-    },
-)
-async def query_intraday_diff(
-    request: IntradayDiffRequest,
-) -> IntradayDiffResponse:
-    """
-    查詢股票盤中價差
-    
-    查詢多檔股票在指定日期的 09:00 與 09:50 價格，以及兩者的價差。
-    
-    **功能特點：**
-    - 支援 1-200 檔股票批次查詢
-    - 支援跨交易所代碼（如 .TW、.US）
-    - 自動處理非交易日、早收盤等特殊情況
-    - 時間對齊容忍度 ±2 分鐘
-    - 自動記憶體快取（TTL 10 分鐘）
-    
-    **價格來源：**
-    - `official_open`: 官方開盤價（若支援）
-    - `first_trade`: 當日第一筆成交價
-    - `minute_bar`: 分鐘 K 線收盤價（預設）
-    
-    **時區處理：**
-    所有輸入與輸出時間皆以指定的 `timezone` 為準。
-    
-    **錯誤處理：**
-    - 單一股票查詢失敗不影響其他股票
-    - 錯誤訊息會記錄在 `notes` 與 `warnings` 中
-    - 整體仍回傳 200 OK（服務降級）
-    """
-    logger.info(
-        "intraday_diff_request",
-        symbols=request.symbols,
-        date=str(request.date),
-        timezone=request.timezone,
-        price_source=request.price_source.value,
-    )
-    
-    # 檢查 symbols 數量上限（防止濫用）
-    if len(request.symbols) > 200:
-        logger.warning(
-            "symbols_limit_exceeded",
-            count=len(request.symbols),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="symbols 數量超過上限（最多 200 檔）",
-        )
-    
-    try:
-        # 查詢服務
-        results, warnings = await service.query_intraday_diff(
-            symbols=request.symbols,
-            target_date=request.date,
-            timezone=request.timezone,
-            price_source=request.price_source,
-        )
-        
-        # 建立回應
-        response = IntradayDiffResponse(
-            date=str(request.date),
-            timezone=request.timezone,
-            price_source=request.price_source.value,
-            results=results,
-            warnings=warnings,
-        )
-        
-        logger.info(
-            "intraday_diff_response",
-            symbols_count=len(request.symbols),
-            results_count=len(results),
-            warnings_count=len(warnings),
-        )
-        
-        return response
-        
-    except Exception as e:
-        logger.error(
-            "intraday_diff_failed",
-            error=str(e),
-            exc_info=True,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"查詢失敗：{str(e)}",
-        ) from e
-
-
-if __name__ == "__main__":
-    import uvicorn
-    
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=settings.debug,
-        log_level=settings.log_level.lower(),
-    )

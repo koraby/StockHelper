@@ -1,5 +1,4 @@
 """應用程式配置設定"""
-from typing import Literal
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,25 +14,6 @@ class Settings(BaseSettings):
     # 應用程式設定
     app_name: str = "Stock Intraday Diff Service"
     debug: bool = False
-    log_level: str = "INFO"
-
-    # 資料源設定
-    # mock: 測試用假資料
-    # yfinance: 使用 yfinance 庫（本地環境推薦）
-    # yahoo_api: 直接調用 Yahoo Finance API（雲環境推薦）
-    # real: 使用 RealDataSource（需自行實作）
-    datasource_type: Literal["mock", "real", "yfinance", "yahoo_api"] = "mock"
-    cache_ttl_seconds: int = 600  # 10 分鐘
-    max_concurrent_requests: int = 10
-
-    # 真實資料源 API 金鑰（請使用環境變數設定）
-    yahoo_finance_enabled: bool = True
-    polygon_api_key: str = ""
-    tiingo_api_key: str = ""
-    twse_api_enabled: bool = True
-
-    # 時間對齊容忍度（分鐘）
-    time_alignment_tolerance_minutes: int = 2
 
 
 # 全域設定實例

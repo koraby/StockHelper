@@ -4,14 +4,6 @@ uvicorn[standard]==0.27.0
 pydantic==2.10.0
 pydantic-settings==2.5.0
 
-# HTTP 客戶端
-httpx==0.26.0
-yfinance==0.2.41
-
-# yfinance 必要依賴（解析 HTML/XML 數據）
-lxml>=4.9.0
-html5lib>=1.1
-
 # 時區支援
 tzdata==2024.1
 
@@ -19,9 +11,3 @@ tzdata==2024.1
 pytest==8.2.0
 pytest-asyncio==0.24.0
 pytest-cov==4.1.0
-
-# 程式碼品質
-ruff==0.1.14
-
-# 日誌
-structlog==24.1.0
