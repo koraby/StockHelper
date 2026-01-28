@@ -13,5 +13,5 @@ services:
       - key: PYTHON_VERSION
         value: "3.11.6"
       - key: DATASOURCE_TYPE
-        value: "yfinance"  # 使用 yfinance 取得真實資料
+        value: "yahoo_api"  # 直接調用 Yahoo Finance API，在雲環境更穩定
     healthCheckPath: /docs

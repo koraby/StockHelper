@@ -18,7 +18,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # 資料源設定
-    datasource_type: Literal["mock", "real", "yfinance"] = "mock"
+    # mock: 測試用假資料
+    # yfinance: 使用 yfinance 庫（本地環境推薦）
+    # yahoo_api: 直接調用 Yahoo Finance API（雲環境推薦）
+    # real: 使用 RealDataSource（需自行實作）
+    datasource_type: Literal["mock", "real", "yfinance", "yahoo_api"] = "mock"
     cache_ttl_seconds: int = 600  # 10 分鐘
     max_concurrent_requests: int = 10
 

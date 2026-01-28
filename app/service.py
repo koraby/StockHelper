@@ -11,6 +11,7 @@ from app.config import settings
 from app.datasource.base import MinuteBar, StockDataSource
 from app.datasource.mock import MockDataSource
 from app.datasource.real import RealDataSource
+from app.datasource.yahoo_api_source import YahooAPIDataSource
 from app.datasource.yfinance_source import YFinanceDataSource
 from app.models import PricePoint, PriceSource, StockResult
 
@@ -61,6 +62,8 @@ class IntradayDiffService:
                 self.datasource = MockDataSource()
             elif settings.datasource_type == "yfinance":
                 self.datasource = YFinanceDataSource()
+            elif settings.datasource_type == "yahoo_api":
+                self.datasource = YahooAPIDataSource()
             else:
                 self.datasource = RealDataSource()
         else:
