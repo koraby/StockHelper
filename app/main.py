@@ -259,6 +259,101 @@ async def debug_yfinance() -> dict:
     return results
 
 
+@app.get("/debug/raw-data/{symbol}")
+async def debug_raw_data(symbol: str, date: str = "2026-01-27") -> dict:
+    """
+    取得指定股票的原始分鐘數據，用於調試價格差異
+    
+    Args:
+        symbol: 股票代碼（如 2330.TW）
+        date: 日期（如 2026-01-27）
+    """
+    import json
+    import urllib.request
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    
+    results = {
+        "symbol": symbol,
+        "date": date,
+        "raw_api_data": {},
+        "parsed_bars": [],
+    }
+    
+    try:
+        # 解析日期
+        target_date = datetime.strptime(date, "%Y-%m-%d").date()
+        tz = ZoneInfo("Asia/Taipei")
+        
+        start_dt = datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0, tzinfo=tz)
+        end_dt = datetime(target_date.year, target_date.month, target_date.day, 23, 59, 59, tzinfo=tz)
+        
+        period1 = int(start_dt.timestamp())
+        period2 = int(end_dt.timestamp())
+        
+        # 調用 Yahoo Finance API（使用 5 分鐘間隔，與主服務一致）
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=5m&period1={period1}&period2={period2}"
+        
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
+        
+        with urllib.request.urlopen(req, timeout=15) as response:
+            raw_data = response.read()
+            json_data = json.loads(raw_data)
+            
+            chart = json_data.get("chart", {})
+            result = chart.get("result", [])
+            
+            if result:
+                data = result[0]
+                timestamps = data.get("timestamp", [])
+                indicators = data.get("indicators", {})
+                quote = indicators.get("quote", [{}])[0]
+                
+                opens = quote.get("open", [])
+                highs = quote.get("high", [])
+                lows = quote.get("low", [])
+                closes = quote.get("close", [])
+                
+                # 顯示 09:00 和 09:50 附近的數據
+                target_times = ["09:00", "09:50"]
+                
+                for i, ts in enumerate(timestamps):
+                    if ts is None:
+                        continue
+                    
+                    dt = datetime.fromtimestamp(ts, tz=tz)
+                    time_str = dt.strftime("%H:%M")
+                    
+                    # 只顯示 09:00-10:00 的數據
+                    if dt.hour == 9:
+                        bar_info = {
+                            "index": i,
+                            "timestamp": ts,
+                            "time": dt.isoformat(),
+                            "time_short": time_str,
+                            "open": opens[i] if i < len(opens) else None,
+                            "high": highs[i] if i < len(highs) else None,
+                            "low": lows[i] if i < len(lows) else None,
+                            "close": closes[i] if i < len(closes) else None,
+                        }
+                        results["parsed_bars"].append(bar_info)
+                
+                results["raw_api_data"]["total_bars"] = len(timestamps)
+                results["raw_api_data"]["url"] = url
+            else:
+                results["error"] = "No data in API response"
+                
+    except Exception as e:
+        results["error"] = str(e)
+        import traceback
+        results["traceback"] = traceback.format_exc()
+    
+    return results
+
+
 @app.post(
     "/v1/stocks/intraday-diff",
     response_model=IntradayDiffResponse,
